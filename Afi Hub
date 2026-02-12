@@ -5325,7 +5325,7 @@ EmbeddedModules["pet/webhook.lua"] = function()
         local message = {
             content = pingId ~= "" and ("<@"..pingId..">") or nil,
             embeds = {{
-                title = "**EzGarden**",
+                title = "**AfiHub**",
                 type = 'rich',
                 color = tonumber("0xfa0c0c"),
                 fields = {{
@@ -5362,7 +5362,7 @@ EmbeddedModules["pet/webhook.lua"] = function()
         local message = {
             content = "",
             embeds = {{
-                title = "**EzGarden**",
+                title = "**AfiHub**",
                 type = 'rich',
                 color = tonumber("0xFFFF00"),
                 fields = {{
@@ -5400,7 +5400,7 @@ EmbeddedModules["pet/webhook.lua"] = function()
         local message = {
             content = _remains <= 0 and content,
             embeds = {{
-                title = "**EzGarden**",
+                title = "**AfiHub**",
                 type = 'rich',
                 color = tonumber("0x8B00FF"),
                 fields = {{
@@ -5432,7 +5432,7 @@ EmbeddedModules["pet/webhook.lua"] = function()
         local message = {
             content = _remains <= 0 and content,
             embeds = {{
-                title = "**EzGarden**",
+                title = "**AfiHub**",
                 type = 'rich',
                 color = tonumber("0x00FF00"),
                 fields = {{
@@ -12794,11 +12794,11 @@ local GhoulUI = loadModule("event/ghoul/ui.lua")
 -- Notification module
 local NotificationUI = loadModule("notification/ui.lua")
 
-local configFolder = "EzHub/EzGarden"
+local configFolder = "EzHub/AfiHub"
 
 -- Initialize window
 local window = EzUI:CreateNew({
-    Title = "EzGarden",
+    Title = "AfiHub",
     Width = 700,
     Height = 400,
     Opacity = 0.9,
