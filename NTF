@@ -1,0 +1,15 @@
+local window = EzUI.CreateWindow({
+	Name = "Afi Hub",
+	Size = {
+		Width = 500,
+		Height = 400
+	},
+	Opacity = 1.0,
+	AutoShow = true,
+	ConfigurationSaving = {
+		Enabled = true,
+		FileName = "Configx",
+		AutoSave = true,
+		AutoLoad = true
+	}
+})
