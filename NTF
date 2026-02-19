@@ -1,5 +1,7 @@
+local EzUI = loadstring(game:HttpGet('https://github.com/alfin-efendy/ez-rbx-ui/releases/latest/download/ez-rbx-ui.lua'))()
+
 local window = EzUI.CreateWindow({
-	Name = "Afi Hub",
+	Name = "AfiHub",
 	Size = {
 		Width = 500,
 		Height = 400
@@ -8,8 +10,44 @@ local window = EzUI.CreateWindow({
 	AutoShow = true,
 	ConfigurationSaving = {
 		Enabled = true,
-		FileName = "Configx",
+		FileName = "AfiHUB",
 		AutoSave = true,
 		AutoLoad = true
 	}
 })
+
+local window = EzUI.CreateWindow({
+	Name = "Settings",
+	ConfigurationSaving = {
+		Enabled = true,
+		FileName = "AppSettings",
+		FolderName = "MyApp",
+		AutoSave = true,
+		AutoLoad = true
+	}
+})
+
+-- Components with flags auto-save
+tab:AddToggle({
+	Text = "Dark Mode",
+	Flag = "DarkMode",
+	Default = true
+})
+
+-- Manual save/load
+window:SaveConfiguration()
+window:LoadConfiguration()
+
+local tab = window:AddTab({
+	Name = "Main",
+	Icon = "🏠"
+})
+
+local args = {
+	workspace:WaitForChild("PlayerPens"):WaitForChild("1"):WaitForChild("Pets"):WaitForChild("f4b6cb9d-03be-4ef6-9a14-7ac0145c6ead"),
+	workspace:WaitForChild("PlayerPens"):WaitForChild("1"):WaitForChild("Pets"):WaitForChild("cedddbed-9e08-4a99-a7c6-90c1ef2b3961"),
+	vector.create(18.315505981445312, 12, -3060.846435546875),
+	vector.create(-32.6837158203125, 12, -3061.9169921875)
+}
+game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("breedRequest"):InvokeServer(unpack(args))
+
