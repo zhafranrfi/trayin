@@ -5687,6 +5687,7 @@ EmbeddedModules["pet/ui.lua"] = function()
         self:BoostPetsSection(tab)
         self:AutoNightmareMutationSection(tab)
         self:AutoLevelingSection(tab)
+        self:AddWebhookSection(tab)
     end
 
     function m:AddPetTeamsSection(tab)
@@ -6206,6 +6207,39 @@ function m:AutoLevelingSection(tab)
                     Pet:StartAutoLeveling()
                 end
             end
+        })
+    end
+
+function m:AddWebhookSection(tab)
+        local accordion = tab:AddAccordion({
+            Title = "Discord Webhook Settings",
+            Icon = "🔗",
+            Expanded = false,
+        })
+
+        accordion:AddTextBox({
+            Name = "Discord Webhook URL",
+            Default = "",
+            Flag = "DiscordWebhookURL",
+            Placeholder = "https://discord.com/api/webhooks/...",
+            MaxLength = 200,
+            Buttons = {
+                {
+                    Text = "Clear ✖️",
+                    Variant = "destructive", 
+                    Callback = function(text, textBox)
+                        textBox.Text = "" -- Mengosongkan kolom teks
+                    end
+                }
+            }
+        })
+
+        accordion:AddTextBox({
+            Name = "Discord Ping ID (Optional)",
+            Default = "",
+            Flag = "DiscordPingID",
+            Placeholder = "Masukkan Discord User ID kamu...",
+            MaxLength = 50
         })
     end
 
