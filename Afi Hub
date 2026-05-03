@@ -1708,16 +1708,17 @@ function m:StartAutoLeveling()
             local petDetail = self:GetPetDetail(petID)
             if not petDetail then continue end
 
-            local isTypeMatch = false
-            for _, selectedType in ipairs(selectedPetTypes) do
-                if petDetail.Type == selectedType then
-                    isTypeMatch = true
+            local isMatch = false
+            for _, selected in ipairs(selectedPetTypes) do
+                -- Mendukung pencarian berdasarkan ID (UI lama) atau Jenis/Type (UI baru)
+                if petDetail.Type == selected or petID == selected then
+                    isMatch = true
                     break
                 end
             end
 
-            -- Jika pet yang aktif adalah tipe target dan sudah max level, UNEQUIP
-            if isTypeMatch and petDetail.Age >= levelToReach then
+            -- Jika pet yang aktif cocok dan sudah max level, UNEQUIP
+            if isMatch and petDetail.Age >= levelToReach then
                 task.spawn(function() 
                     Webhook:Leveling(petDetail.Type, petDetail.Age, 0)
                 end)
@@ -1751,8 +1752,9 @@ function m:StartAutoLeveling()
 
             -- Filter pet dari inventory
             for _, tool in pairs(self:GetAllOwnedPets()) do
+                -- JANGAN GANGGU GUGAT PET FAVORIT
                 local isFavorited = tool:GetAttribute("d") or false
-                if isFavorited then continue end -- Abaikan pet favorit
+                if isFavorited then continue end 
 
                 local petID = tool:GetAttribute("PET_UUID")
                 if not petID then continue end
@@ -1766,16 +1768,16 @@ function m:StartAutoLeveling()
                 -- Abaikan jika usianya sudah target level
                 if petDetail.Age >= levelToReach then continue end
 
-                -- Cek tipe/jenis pet
-                local isTypeMatch = false
-                for _, selectedType in ipairs(selectedPetTypes) do
-                    if petDetail.Type == selectedType then
-                        isTypeMatch = true
+                -- Cek kecocokan tipe/jenis pet atau ID pet
+                local isMatch = false
+                for _, selected in ipairs(selectedPetTypes) do
+                    if petDetail.Type == selected or petID == selected then
+                        isMatch = true
                         break
                     end
                 end
 
-                if isTypeMatch then
+                if isMatch then
                     table.insert(eligibleToEquip, petID)
                 end
             end
@@ -1791,7 +1793,7 @@ function m:StartAutoLeveling()
                 
                 self:EquipPet(petID)
                 equipCount = equipCount + 1
-                task.wait(0.5) -- Jeda aman agar pet berhasil spawn tanpa membuat nge-lag
+                task.wait(0.5) -- Jeda aman agar pet berhasil spawn
             end
         end
     end
@@ -12868,7 +12870,7 @@ local configFolder = "EzHub/AfiHub"
 
 -- Initialize window
 local window = EzUI:CreateNew({
-    Title = "AfiHub 1.1",
+    Title = "AfiHub 1.11",
     Width = 700,
     Height = 400,
     Opacity = 0.9,
