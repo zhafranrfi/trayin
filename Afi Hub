@@ -1691,6 +1691,9 @@ EmbeddedModules["pet/pet.lua"] = function()
     end
 
 function m:StartAutoLeveling()
+        -- Membuat memori internal untuk mengingat pet yang di-equip oleh script
+        self.ScriptEquippedPets = self.ScriptEquippedPets or {}
+        
         local autoLeveling = Window:GetConfigValue("AutoLevelingPets") or false
         local levelToReach = Window:GetConfigValue("LevelToReach") or 100
         local maxLevelingPets = Window:GetConfigValue("MaxLevelingPets") or 1
@@ -1700,104 +1703,49 @@ function m:StartAutoLeveling()
             return
         end
 
-        -- SUMBER KEBENARAN MUTLAK: Baca status favorit LANGSUNG dari Tool di Inventory
-        local ownedPetsData = {}
-        for _, tool in pairs(self:GetAllOwnedPets()) do
-            local petID = tool:GetAttribute("PET_UUID")
-            local isFavorited = tool:GetAttribute("d") or false
-            if petID then
-                ownedPetsData[petID] = {
-                    IsFavorited = isFavorited
-                }
-            end
-        end
-
         local activePets = self:GetAllActivePets() or {}
         local unequippedAny = false
 
-        -- TAHAP 1: UNEQUIP Pet Level 100 (Proteksi Favorit Super Ketat)
+        -- TAHAP 1: Tarik (Unequip) Pet HANYA JIKA ada di dalam memori script
         for petID, _ in pairs(activePets) do
-            local petInfo = ownedPetsData[petID]
-            local isFavorited = false
-            
-            -- Cek dari data tas (inventory), jika tidak ada baru pakai data detail
-            if petInfo then
-                isFavorited = petInfo.IsFavorited
-            else
-                local detail = self:GetPetDetail(petID)
-                isFavorited = detail and detail.IsFavorited
-            end
-
-            -- JIKA FAVORIT = JANGAN DISENTUH SAMA SEKALI
-            if isFavorited then
-                continue 
+            -- KEAMANAN MUTLAK: Jika pet ini BUKAN diletakkan oleh script (misal: diletakkan manual olehmu), ABAIKAN!
+            if not self.ScriptEquippedPets[petID] then
+                continue
             end
 
             local petDetail = self:GetPetDetail(petID)
             if not petDetail then continue end
 
-            local isMatch = false
-            for _, selected in ipairs(selectedPetTypes) do
-                if petDetail.Type == selected or petID == selected then
-                    isMatch = true
-                    break
-                end
-            end
-
-            -- Jika pet target (non-favorit) sudah level 100, tarik (unequip)
-            if isMatch and petDetail.Age >= levelToReach then
+            -- Jika pet tumbal yang diingat script sudah mencapai level target
+            if petDetail.Age >= levelToReach then
                 task.spawn(function() 
                     Webhook:Leveling(petDetail.Type, petDetail.Age, 0)
                 end)
                 self:UnequipPet(petID)
+                self.ScriptEquippedPets[petID] = nil -- Hapus dari memori
                 unequippedAny = true
                 task.wait(0.5)
             end
         end
 
         if unequippedAny then
-            task.wait(2) -- Tunggu server update status agar tidak terjadi penumpukan
+            task.wait(1.5) -- Tunggu server merespons
         end
 
-        -- TAHAP 2: Hitung Ulang & Equip Pet Pengganti (Abaikan Favorit)
+        -- TAHAP 2: Sinkronisasi Memori dan Hitung Sisa Kuota
         local currentActivePets = self:GetAllActivePets() or {}
         local currentLevelingCount = 0
-        local currentlyActiveIDs = {}
 
-        for petID, _ in pairs(currentActivePets) do
-            currentlyActiveIDs[petID] = true
-            
-            local petInfo = ownedPetsData[petID]
-            local isFavorited = false
-            if petInfo then
-                isFavorited = petInfo.IsFavorited
+        -- Bersihkan memori jika ada pet script yang kamu tarik secara manual
+        for memID, _ in pairs(self.ScriptEquippedPets) do
+            if not currentActivePets[memID] then
+                self.ScriptEquippedPets[memID] = nil
             else
-                local detail = self:GetPetDetail(petID)
-                isFavorited = detail and detail.IsFavorited
-            end
-
-            -- Pet favorit TIDAK DIHITUNG sebagai slot leveling
-            if isFavorited then 
-                continue 
-            end
-
-            local petDetail = self:GetPetDetail(petID)
-            if not petDetail then continue end
-
-            local isMatch = false
-            for _, selected in ipairs(selectedPetTypes) do
-                if petDetail.Type == selected or petID == selected then
-                    isMatch = true
-                    break
-                end
-            end
-
-            if isMatch and petDetail.Age < levelToReach then
                 currentLevelingCount = currentLevelingCount + 1
             end
         end
 
-        -- TAHAP 3: Eksekusi Equip jika kuota leveling masih bersisa
+        -- TAHAP 3: Isi Slot Kosong HANYA dengan Pet Non-Favorit dari Tas
         if currentLevelingCount < maxLevelingPets then
             while m.CurrentPetTeam ~= "core" do
                 task.wait(1)
@@ -1806,16 +1754,18 @@ function m:StartAutoLeveling()
             local slotsAvailable = maxLevelingPets - currentLevelingCount
             local equipCount = 0
 
-            for petID, petInfo in pairs(ownedPetsData) do
+            for _, tool in pairs(self:GetAllOwnedPets()) do
                 if equipCount >= slotsAvailable then break end
 
-                -- PROTEKSI: Lewati pet favorit dan pet yang sudah ada di garden
-                if petInfo.IsFavorited then continue end
-                if currentlyActiveIDs[petID] then continue end
+                -- CEK DATA KHUSUS TAS: Atribut "d" tidak mungkin berbohong
+                local isFavorited = tool:GetAttribute("d") or false
+                if isFavorited then continue end -- Tolak mentah-mentah pet favorit di tas
+
+                local petID = tool:GetAttribute("PET_UUID")
+                if not petID or currentActivePets[petID] then continue end
 
                 local petDetail = self:GetPetDetail(petID)
-                if not petDetail then continue end
-                if petDetail.Age >= levelToReach then continue end
+                if not petDetail or petDetail.Age >= levelToReach then continue end
 
                 local isMatch = false
                 for _, selected in ipairs(selectedPetTypes) do
@@ -1827,7 +1777,7 @@ function m:StartAutoLeveling()
 
                 if isMatch then
                     self:EquipPet(petID)
-                    currentlyActiveIDs[petID] = true -- Tandai agar tidak di-equip ganda dalam 1 siklus
+                    self.ScriptEquippedPets[petID] = true -- Catat pet ini ke dalam memori script
                     equipCount = equipCount + 1
                     task.wait(0.5)
                 end
