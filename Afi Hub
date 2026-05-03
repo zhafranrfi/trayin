@@ -1695,113 +1695,103 @@ function m:StartAutoLeveling()
         local levelToReach = Window:GetConfigValue("LevelToReach") or 100
         local maxLevelingPets = Window:GetConfigValue("MaxLevelingPets") or 1
         local selectedPetTypes = Window:GetConfigValue("LevelingPets") or {}
+        local favoritePetsToKeep = Window:GetConfigValue("FavoritePetsToKeep") or {}
 
-        if not autoLeveling or levelToReach < 1 or #selectedPetTypes == 0 then
-            return
+        if not autoLeveling then return end
+
+        -- Ambil semua data pet (inventory + aktif di garden)
+        local allMyPets = self:GetAllMyPets()
+        local activePets = self:GetAllActivePets() or {}
+
+        local currentlyActiveIDs = {}
+        for petID, _ in pairs(activePets) do
+            currentlyActiveIDs[petID] = true
         end
 
-        local activePets = self:GetAllActivePets() or {}
-        local unequippedAny = false
-        local currentLevelingCount = 0
+        local targetActiveIDs = {}
+        
+        -- TAHAP 1: Daftarkan Pet Favorit yang WAJIB AKTIF (Prioritas Utama)
+        for _, petID in ipairs(favoritePetsToKeep) do
+            targetActiveIDs[petID] = "Favorite"
+        end
 
-        -- TAHAP 1: Cek Pet Aktif (Proteksi penuh untuk pet favorit)
-        for petID, _ in pairs(activePets) do
-            local petDetail = self:GetPetDetail(petID)
-            if not petDetail then continue end
+        -- TAHAP 2: Kumpulkan Kandidat Pet untuk Leveling
+        local levelingCandidates = {}
+        for _, pet in ipairs(allMyPets) do
+            local petID = pet.ID
+            
+            -- Abaikan jika pet ini sudah masuk daftar favorit wajib di atas
+            if targetActiveIDs[petID] then continue end
 
-            -- KEAMANAN MUTLAK 1: Jika pet ini favorit (punya user), abaikan sepenuhnya!
-            -- Jangan di-unequip dan jangan dihitung ke dalam kuota leveling.
-            if petDetail.IsFavorited then 
-                continue 
-            end
+            -- JANGAN GANGGU pet yang di-favoritkan di inventory (selain yang dipilih di UI)
+            if pet.IsFavorited then continue end
 
-            -- Cek apakah pet (non-favorit) ini sesuai dengan tipe yang diatur di UI
+            -- Cek kecocokan tipe/jenis pet
             local isMatch = false
             for _, selected in ipairs(selectedPetTypes) do
-                if petDetail.Type == selected or petID == selected then
+                if pet.Type == selected or petID == selected then
                     isMatch = true
                     break
                 end
             end
 
             if isMatch then
-                if petDetail.Age >= levelToReach then
-                    -- Unequip karena sudah mencapai target level 100
-                    task.spawn(function() 
-                        Webhook:Leveling(petDetail.Type, petDetail.Age, 0)
-                    end)
-                    self:UnequipPet(petID)
-                    unequippedAny = true
-                    task.wait(0.5)
+                -- Jika sudah mencapai level target
+                if pet.Age >= levelToReach then
+                    -- Beri notifikasi Discord jika dia saat ini sedang diletakkan di garden
+                    if currentlyActiveIDs[petID] then
+                        task.spawn(function() 
+                            Webhook:Leveling(pet.Type, pet.Age, 0)
+                        end)
+                    end
                 else
-                    -- Hitung sebagai pet yang sedang murni diproses leveling oleh script
-                    currentLevelingCount = currentLevelingCount + 1
+                    -- Jika belum mencapai level target, antrekan
+                    table.insert(levelingCandidates, petID)
                 end
+            end
+        end
+
+        -- TAHAP 3: Pilih Pet Leveling sesuai batas MaxLevelingPets
+        local currentLevelingCount = 0
+
+        -- Prioritaskan kandidat yang memang sudah ada di garden agar tidak bolak-balik animasi
+        for _, petID in ipairs(levelingCandidates) do
+            if currentlyActiveIDs[petID] and currentLevelingCount < maxLevelingPets then
+                targetActiveIDs[petID] = "Leveling"
+                currentLevelingCount = currentLevelingCount + 1
+            end
+        end
+
+        -- Jika kuota leveling masih sisa, isi dengan kandidat dari tas (inventory)
+        for _, petID in ipairs(levelingCandidates) do
+            if not currentlyActiveIDs[petID] and currentLevelingCount < maxLevelingPets then
+                targetActiveIDs[petID] = "Leveling"
+                currentLevelingCount = currentLevelingCount + 1
+            end
+        end
+
+        -- TAHAP 4: Eksekusi UNEQUIP (Tarik SEMUA pet aktif yang TIDAK ADA di daftar target)
+        local unequippedAny = false
+        for petID, _ in pairs(currentlyActiveIDs) do
+            if not targetActiveIDs[petID] then
+                self:UnequipPet(petID)
+                unequippedAny = true
+                task.wait(0.5)
             end
         end
 
         if unequippedAny then
-            task.wait(1.5) -- Tunggu server memproses penarikan pet
+            task.wait(1.5) -- Tunggu server merespons penarikan
         end
 
-        -- TAHAP 2: Equip Pet Baru Jika Kuota Leveling Masih Kosong
-        if currentLevelingCount < maxLevelingPets then
-            while m.CurrentPetTeam ~= "core" do
-                task.wait(1)
-            end
+        -- TAHAP 5: Eksekusi EQUIP (Keluarkan SEMUA pet di daftar target yang BELUM diletakkan)
+        while m.CurrentPetTeam ~= "core" do
+            task.wait(1)
+        end
 
-            local eligibleToEquip = {}
-            local currentlyActiveIDs = {}
-            for petID, _ in pairs(self:GetAllActivePets() or {}) do
-                currentlyActiveIDs[petID] = true
-            end
-
-            -- Cari pet target dari inventory
-            for _, tool in pairs(self:GetAllOwnedPets()) do
-                -- KEAMANAN MUTLAK 2: Jangan pernah sentuh pet favorit di dalam tas
-                local isFavorited = tool:GetAttribute("d") or false
-                if isFavorited then continue end 
-
-                local petID = tool:GetAttribute("PET_UUID")
-                if not petID then continue end
-
-                -- Abaikan jika pet sudah ada di lapangan
-                if currentlyActiveIDs[petID] then continue end
-
-                local petDetail = self:GetPetDetail(petID)
-                if not petDetail then continue end
-                
-                -- Proteksi ganda membaca data favorit dari fungsi Detail
-                if petDetail.IsFavorited then continue end
-
-                -- Abaikan jika sudah mencapai target level
-                if petDetail.Age >= levelToReach then continue end
-
-                -- Pastikan jenis pet sesuai dengan yang dipilih di UI
-                local isMatch = false
-                for _, selected in ipairs(selectedPetTypes) do
-                    if petDetail.Type == selected or petID == selected then
-                        isMatch = true
-                        break
-                    end
-                end
-
-                if isMatch then
-                    table.insert(eligibleToEquip, petID)
-                end
-            end
-
-            -- TAHAP 3: Masukkan pet ke garden sesuai sisa slot kuota
-            local slotsAvailable = maxLevelingPets - currentLevelingCount
-            local equipCount = 0
-
-            for _, petID in ipairs(eligibleToEquip) do
-                if equipCount >= slotsAvailable then
-                    break
-                end
-                
+        for petID, role in pairs(targetActiveIDs) do
+            if not currentlyActiveIDs[petID] then
                 self:EquipPet(petID)
-                equipCount = equipCount + 1
                 task.wait(0.5)
             end
         end
@@ -6187,6 +6177,40 @@ function m:AutoLevelingSection(tab)
             Icon = "⬆️",
             Expanded = false,
         })
+
+        -- FITUR BARU: Memilih Pet Favorit yang Wajib Dibiarkan Aktif
+        accordion:AddSelectBox({
+            Name = "Favorite Pets to Keep Active",
+            Options = {"Loading..."},
+            Placeholder = "Select Favorite Pets...",
+            MultiSelect = true,
+            Flag = "FavoritePetsToKeep",
+            OnInit = function(api, optionsData)
+                local pets = Pet:GetAllMyPets()
+                local currentOptionsSet = {}
+
+                for _, pet in pairs(pets) do
+                    -- Hanya tampilkan pet yang di-favoritkan
+                    if pet.IsFavorited then
+                        table.insert(currentOptionsSet, {text = Pet:SerializePet(pet), value = pet.ID})
+                    end
+                end
+                optionsData.updateOptions(currentOptionsSet)
+            end,
+            OnDropdownOpen = function(currentOptions, updateOptions)
+                local pets = Pet:GetAllMyPets()
+                local currentOptionsSet = {}
+
+                for _, pet in pairs(pets) do
+                    if pet.IsFavorited then
+                        table.insert(currentOptionsSet, {text = Pet:SerializePet(pet), value = pet.ID})
+                    end
+                end
+                updateOptions(currentOptionsSet)
+            end
+        })
+
+        accordion:AddSeparator()
 
         accordion:AddSelectBox({
             Name = "Select Pet Types to Level",
