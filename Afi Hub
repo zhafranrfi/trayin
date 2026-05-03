@@ -1693,80 +1693,79 @@ EmbeddedModules["pet/pet.lua"] = function()
 function m:StartAutoLeveling()
         local autoLeveling = Window:GetConfigValue("AutoLevelingPets") or false
         local levelToReach = Window:GetConfigValue("LevelToReach") or 100
-        local maxLevelingPets = Window:GetConfigValue("MaxLevelingPets") or 1 -- Mengambil limit dari UI
+        local maxLevelingPets = Window:GetConfigValue("MaxLevelingPets") or 1
+        local selectedPetTypes = Window:GetConfigValue("LevelingPets") or {}
 
-        if not autoLeveling then
+        if not autoLeveling or levelToReach < 1 or #selectedPetTypes == 0 then
             return
         end
 
-        if levelToReach < 1 then
-            return
-        end
+        local activeCount = 0
+        local eligibleToEquip = {}
 
-        local petIDs = Window:GetConfigValue("LevelingPets") or {}
-        if #petIDs == 0 then
-            return
-        end
-
-        local unequippedAny = false
-
-        -- Periksa semua pet dari belakang ke depan (karena kita akan menghapus data dari tabel)
-        for i = #petIDs, 1, -1 do
-            local petID = petIDs[i]
-            local petDetail = self:GetPetDetail(petID)
-
-            if not petDetail then
-                -- Jika pet tidak valid/tidak ditemukan, hapus dari antrean
-                table.remove(petIDs, i)
-                unequippedAny = true
+        -- Loop semua pet yang dimiliki player di inventory
+        for _, tool in pairs(self:GetAllOwnedPets()) do
+            -- Abaikan pet yang difavoritkan
+            local isFavorited = tool:GetAttribute("d") or false
+            if isFavorited then
                 continue
             end
 
-            -- Jika pet aktif dan sudah mencapai target level
-            if petDetail.IsActive and petDetail.Age >= levelToReach then
-                task.spawn(function() 
-                    Webhook:Leveling(petDetail.Type, petDetail.Age, #petIDs - 1)
-                end)
+            local petID = tool:GetAttribute("PET_UUID")
+            if not petID then continue end
 
-                self:UnequipPet(petID)
-                table.remove(petIDs, i)
-                unequippedAny = true
-            end
-        end
-
-        if unequippedAny then
-            -- FIX: Menyimpan daftar antrean terbaru ke "LevelingPets", BUKAN "AutoLevelingPets"
-            Window:SetConfigValue("LevelingPets", petIDs)
-            task.wait(1)
-        end
-
-        -- Menghitung jumlah pet yang sedang aktif dan yang siap di-equip
-        local activeCount = 0
-        local toEquip = {}
-
-        for _, petID in ipairs(petIDs) do
             local petDetail = self:GetPetDetail(petID)
-            if petDetail and petDetail.IsActive then
+            if not petDetail then continue end
+
+            -- Cek apakah pet ini termasuk dalam JENIS yang dipilih di UI
+            local isTypeMatch = false
+            for _, selectedType in ipairs(selectedPetTypes) do
+                if petDetail.Type == selectedType then
+                    isTypeMatch = true
+                    break
+                end
+            end
+
+            if not isTypeMatch then continue end
+
+            -- Jika pet sudah mencapai target level
+            if petDetail.Age >= levelToReach then
+                -- Jika pet masih dipakai, kita unequip
+                if petDetail.IsActive then
+                    task.spawn(function() 
+                        Webhook:Leveling(petDetail.Type, petDetail.Age, #eligibleToEquip)
+                    end)
+                    
+                    self:UnequipPet(petID)
+                    task.wait(0.5)
+                end
+                continue -- Lewati karena sudah mencapai target
+            end
+
+            -- Jika pet belum mencapai target level dan tidak difavoritkan
+            if petDetail.IsActive then
                 activeCount = activeCount + 1
-            elseif petDetail and not petDetail.IsActive then
-                table.insert(toEquip, petID)
+            else
+                table.insert(eligibleToEquip, petID)
             end
         end
 
-        -- Jika masih ada slot kosong (dibawah batas MaxLevelingPets), equip pet dari antrean
-        if activeCount < maxLevelingPets and #toEquip > 0 then
+        -- Jika masih ada slot kosong (dibawah batas MaxLevelingPets)
+        if activeCount < maxLevelingPets and #eligibleToEquip > 0 then
+            -- Pastikan kita sedang berada di "core" team sebelum mengganti pet
             while m.CurrentPetTeam ~= "core" do
                 task.wait(1)
             end
 
             local equipCount = 0
-            for _, petID in ipairs(toEquip) do
+            for _, petID in ipairs(eligibleToEquip) do
                 if activeCount + equipCount >= maxLevelingPets then
                     break
                 end
+                
                 self:EquipPet(petID)
                 equipCount = equipCount + 1
-                task.wait(0.25) -- Jeda kecil antar equip agar server tidak kelebihan beban
+                task.wait(0.25)
             end
         end
     end
@@ -6152,28 +6151,18 @@ function m:AutoLevelingSection(tab)
         })
 
         accordion:AddSelectBox({
-            Name = "Pets Use for Auto Leveling",
+            Name = "Select Pet Types to Level",
             Options = {"Loading..."},
-            Placeholder = "Select Pet Team...",
+            Placeholder = "Select Pet Types...",
             MultiSelect = true,
             Flag = "LevelingPets",
             OnInit = function(api, optionsData)
-                local pets = Pet:GetAllMyPets()
-                local currentOptionsSet = {}
-
-                for _, pet in pairs(pets) do
-                    table.insert(currentOptionsSet, {text = Pet:SerializePet(pet), value = pet.ID})
-                end
-                optionsData.updateOptions(currentOptionsSet)
+                local petTypes = Pet:GetPetRegistry()
+                optionsData.updateOptions(petTypes)
             end,
             OnDropdownOpen = function(currentOptions, updateOptions)
-                local pets = Pet:GetAllMyPets()
-                local currentOptionsSet = {}
-
-                for _, pet in pairs(pets) do
-                    table.insert(currentOptionsSet, {text = Pet:SerializePet(pet), value = pet.ID})
-                end
-                updateOptions(currentOptionsSet)
+                local petTypes = Pet:GetPetRegistry()
+                updateOptions(petTypes)
             end
         })
 
@@ -6187,13 +6176,12 @@ function m:AutoLevelingSection(tab)
             Flag = "LevelToReach",
         })
 
-        -- FITUR BARU: Opsi untuk mengatur batas maksimal pet yang dileveling bersamaan
         accordion:AddNumberBox({
             Name = "Max Pets to Level",
             Placeholder = "Enter amount...",
             Default = 1,
             Min = 1,
-            Max = 5, -- Kamu bisa mengubah Max ini sesuai batasan maksimal pet yang bisa digunakan di dalam game
+            Max = 5,
             Increment = 1,
             Flag = "MaxLevelingPets",
         })
