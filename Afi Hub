@@ -1702,73 +1702,82 @@ function m:StartAutoLeveling()
 
         local activePets = self:GetAllActivePets() or {}
         local unequippedAny = false
+        local currentLevelingCount = 0
 
-        -- TAHAP 1: Fokus cek pet yang SEDANG AKTIF (equip)
+        -- TAHAP 1: Cek Pet Aktif (Proteksi penuh untuk pet favorit)
         for petID, _ in pairs(activePets) do
             local petDetail = self:GetPetDetail(petID)
             if not petDetail then continue end
 
+            -- KEAMANAN MUTLAK 1: Jika pet ini favorit (punya user), abaikan sepenuhnya!
+            -- Jangan di-unequip dan jangan dihitung ke dalam kuota leveling.
+            if petDetail.IsFavorited then 
+                continue 
+            end
+
+            -- Cek apakah pet (non-favorit) ini sesuai dengan tipe yang diatur di UI
             local isMatch = false
             for _, selected in ipairs(selectedPetTypes) do
-                -- Mendukung pencarian berdasarkan ID (UI lama) atau Jenis/Type (UI baru)
                 if petDetail.Type == selected or petID == selected then
                     isMatch = true
                     break
                 end
             end
 
-            -- Jika pet yang aktif cocok dan sudah max level, UNEQUIP
-            if isMatch and petDetail.Age >= levelToReach then
-                task.spawn(function() 
-                    Webhook:Leveling(petDetail.Type, petDetail.Age, 0)
-                end)
-                
-                self:UnequipPet(petID)
-                unequippedAny = true
-                task.wait(0.5) -- Jeda per unequip
+            if isMatch then
+                if petDetail.Age >= levelToReach then
+                    -- Unequip karena sudah mencapai target level 100
+                    task.spawn(function() 
+                        Webhook:Leveling(petDetail.Type, petDetail.Age, 0)
+                    end)
+                    self:UnequipPet(petID)
+                    unequippedAny = true
+                    task.wait(0.5)
+                else
+                    -- Hitung sebagai pet yang sedang murni diproses leveling oleh script
+                    currentLevelingCount = currentLevelingCount + 1
+                end
             end
         end
 
         if unequippedAny then
-            -- Beri waktu ke server game untuk benar-benar menghilangkan pet dari map
-            task.wait(1.5) 
+            task.wait(1.5) -- Tunggu server memproses penarikan pet
         end
 
-        -- TAHAP 2: Hitung ulang jumlah pet yang BENAR-BENAR aktif di server
-        local currentActiveCount = 0
-        local currentlyActiveIDs = {}
-        for petID, _ in pairs(self:GetAllActivePets() or {}) do
-            currentActiveCount = currentActiveCount + 1
-            currentlyActiveIDs[petID] = true
-        end
-
-        -- TAHAP 3: Jika slot aktif MASIH di bawah batas max, cari pet pengganti
-        if currentActiveCount < maxLevelingPets then
+        -- TAHAP 2: Equip Pet Baru Jika Kuota Leveling Masih Kosong
+        if currentLevelingCount < maxLevelingPets then
             while m.CurrentPetTeam ~= "core" do
                 task.wait(1)
             end
 
             local eligibleToEquip = {}
+            local currentlyActiveIDs = {}
+            for petID, _ in pairs(self:GetAllActivePets() or {}) do
+                currentlyActiveIDs[petID] = true
+            end
 
-            -- Filter pet dari inventory
+            -- Cari pet target dari inventory
             for _, tool in pairs(self:GetAllOwnedPets()) do
-                -- JANGAN GANGGU GUGAT PET FAVORIT
+                -- KEAMANAN MUTLAK 2: Jangan pernah sentuh pet favorit di dalam tas
                 local isFavorited = tool:GetAttribute("d") or false
                 if isFavorited then continue end 
 
                 local petID = tool:GetAttribute("PET_UUID")
                 if not petID then continue end
 
-                -- Abaikan pet yang sudah aktif saat ini
+                -- Abaikan jika pet sudah ada di lapangan
                 if currentlyActiveIDs[petID] then continue end
 
                 local petDetail = self:GetPetDetail(petID)
                 if not petDetail then continue end
+                
+                -- Proteksi ganda membaca data favorit dari fungsi Detail
+                if petDetail.IsFavorited then continue end
 
-                -- Abaikan jika usianya sudah target level
+                -- Abaikan jika sudah mencapai target level
                 if petDetail.Age >= levelToReach then continue end
 
-                -- Cek kecocokan tipe/jenis pet atau ID pet
+                -- Pastikan jenis pet sesuai dengan yang dipilih di UI
                 local isMatch = false
                 for _, selected in ipairs(selectedPetTypes) do
                     if petDetail.Type == selected or petID == selected then
@@ -1782,8 +1791,8 @@ function m:StartAutoLeveling()
                 end
             end
 
-            -- Mulai equip pet baru SEBATAS slot yang tersedia saja
-            local slotsAvailable = maxLevelingPets - currentActiveCount
+            -- TAHAP 3: Masukkan pet ke garden sesuai sisa slot kuota
+            local slotsAvailable = maxLevelingPets - currentLevelingCount
             local equipCount = 0
 
             for _, petID in ipairs(eligibleToEquip) do
@@ -1793,7 +1802,7 @@ function m:StartAutoLeveling()
                 
                 self:EquipPet(petID)
                 equipCount = equipCount + 1
-                task.wait(0.5) -- Jeda aman agar pet berhasil spawn
+                task.wait(0.5)
             end
         end
     end
@@ -12870,7 +12879,7 @@ local configFolder = "EzHub/AfiHub"
 
 -- Initialize window
 local window = EzUI:CreateNew({
-    Title = "AfiHub 1.11",
+    Title = "AfiHub 1.111",
     Width = 700,
     Height = 400,
     Opacity = 0.9,
